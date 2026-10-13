@@ -1,0 +1,55 @@
+{
+  "host": [
+    {
+      "name": "lima-2.2.1-Darwin-arm64.tar.gz",
+      "url": "https://github.com/lima-vm/lima/releases/download/v2.2.1/lima-2.2.1-Darwin-arm64.tar.gz",
+      "sha256": "9e9eacce88f37e185c346bad73aa6136f738d8cdf8c3bb23cd42b071824bc66e",
+      "destination": "lima",
+      "archive": true
+    },
+    {
+      "name": "docker-compose-darwin-aarch64",
+      "url": "https://github.com/docker/compose/releases/download/v5.6.1/docker-compose-darwin-aarch64",
+      "sha256": "fcce41226abd2b7b2936094e688bbd61284673dddafea542e08cb9a3b4423a8b",
+      "destination": "cli-plugins/docker-compose",
+      "archive": false
+    },
+    {
+      "name": "buildx-v0.38.1.darwin-arm64",
+      "url": "https://github.com/docker/buildx/releases/download/v0.38.1/buildx-v0.38.1.darwin-arm64",
+      "sha256": "6f20ba2437865311ef99015bf5d1039c3c8e4d2177c1c64aa41b134b5ecd3012",
+      "destination": "cli-plugins/docker-buildx",
+      "archive": false
+    },
+    {
+      "name": "kubectl-darwin-arm64",
+      "url": "https://dl.k8s.io/release/v1.37.1/bin/darwin/arm64/kubectl",
+      "sha256": "fd65982c97ddad3106754b69ffa196d0e543aa591930ae52aed1adfb92f8c77f",
+      "destination": "bin/kubectl"
+    },
+    {
+      "name": "docker-mac-29.9.2.tgz",
+      "url": "https://download.docker.com/mac/static/stable/aarch64/docker-29.9.2.tgz",
+      "sha256": "ea8a2ce5ac31f9f5f3fb711a7a485e1e46cc7a69798a629a70306f6e6af25b7a",
+      "destination": ".",
+      "archive": true
+    }
+  ],
+  "guest": {
+    "docker": {
+      "name": "docker-linux-29.9.2.tgz",
+      "url": "https://download.docker.com/linux/static/stable/aarch64/docker-29.9.2.tgz",
+      "sha256": "873b3e0207857c3b2f28392fb922f3ea6efe37620c16d4d4aaf2fef409c90b73",
+      "destination": ".",
+      "archive": true
+    },
+    "k3s": {
+      "url": "https://github.com/k3s-io/k3s/releases/download/v1.37.1%2Bk3s1/k3s-arm64",
+      "sha256": "a1561ca4aef8b99f5588a840d4468ac39c8c1cd92470bbcb9634823fa221741a"
+    },
+    "image": {
+      "url": "https://cloud-images.ubuntu.com/releases/noble/release-20261017/ubuntu-24.04-server-cloudimg-arm64.img",
+      "sha256": "50e24e1fb79e89116e939d90aa7738f7af48c442fa1bc2510131e0b39c50348e"
+    }
+  }
+}

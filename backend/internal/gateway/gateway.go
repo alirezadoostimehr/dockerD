@@ -5,6 +5,7 @@ import (
 	"context"
 	"dockerd.local/backend/internal/idle"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -59,13 +60,17 @@ func (t *Tracker) TryGate(generation uint64) bool {
 
 func IsActivity(r *http.Request) bool {
 	p := r.URL.Path
+	switch p {
+	case "/moby.buildkit.v1.Control/Info", "/moby.buildkit.v1.Control/ListWorkers", "/moby.buildkit.v1.Control/DiskUsage", "/moby.buildkit.v1.Control/ListenBuildHistory", "/moby.buildkit.v1.Control/Status", "/grpc.health.v1.Health/Check", "/grpc.health.v1.Health/Watch":
+		return false
+	}
 	transfer := (strings.Contains(p, "/images/") && strings.HasSuffix(p, "/get")) || strings.HasSuffix(p, "/archive") || strings.HasSuffix(p, "/export")
 	return r.Method != "GET" && r.Method != "HEAD" || transfer || strings.EqualFold(r.Header.Get("Connection"), "upgrade") || r.Header.Get("Upgrade") != "" || strings.Contains(p, "/exec") || strings.Contains(p, "/attach") || strings.Contains(p, "/portforward")
 }
 
 func Proxy(target *url.URL, transport http.RoundTripper, t *Tracker, name string) http.Handler {
 	p := httputil.NewSingleHostReverseProxy(target)
-	p.Transport = transport
+	p.Transport = upgradeTransport{transport}
 	p.FlushInterval = -1
 	p.ErrorHandler = func(w http.ResponseWriter, r *http.Request, e error) {
 		http.Error(w, "DockerD engine unavailable. Start it from DockerD. "+e.Error(), http.StatusServiceUnavailable)
@@ -88,6 +93,23 @@ func Proxy(target *url.URL, transport http.RoundTripper, t *Tracker, name string
 		}
 		p.ServeHTTP(w, r)
 	})
+}
+
+type upgradeTransport struct{ http.RoundTripper }
+type fullCloseStream struct{ io.ReadWriteCloser }
+
+func (t upgradeTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	response, e := t.RoundTripper.RoundTrip(r)
+	if e == nil && response.StatusCode == http.StatusSwitchingProtocols && strings.EqualFold(r.Header.Get("Upgrade"), "h2c") {
+		if stream, ok := response.Body.(io.ReadWriteCloser); ok {
+			// HTTP/2 gRPC sessions do not use TCP half-close for stdin. Hide CloseWrite
+			// so ReverseProxy closes both ends on client EOF instead of retaining a
+			// dead session through a VM tunnel that cannot propagate half-closes.
+			// Raw Docker exec streams keep their ordinary half-close behavior.
+			response.Body = fullCloseStream{stream}
+		}
+	}
+	return response, e
 }
 func UnixTransport(path string) *http.Transport {
 	return &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {

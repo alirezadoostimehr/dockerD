@@ -59,6 +59,7 @@ type Server struct {
 	kubeServer         *http.Server
 	forwards           map[string]*Forward
 	eventHealthy       bool
+	eventGeneration    uint64
 	eventCancel        context.CancelFunc
 	observedGeneration uint64
 }
@@ -299,6 +300,11 @@ func (s *Server) startEvents() {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s.eventCancel = cancel
+	s.mu.Lock()
+	s.eventGeneration++
+	generation := s.eventGeneration
+	s.eventHealthy = false
+	s.mu.Unlock()
 	go func() {
 		for ctx.Err() == nil {
 			req, _ := http.NewRequestWithContext(ctx, "GET", "http://docker/events", nil)
@@ -306,7 +312,9 @@ func (s *Server) startEvents() {
 			response, e := client.Do(req)
 			if e == nil && response.StatusCode == 200 {
 				s.mu.Lock()
-				s.eventHealthy = true
+				if generation == s.eventGeneration {
+					s.eventHealthy = true
+				}
 				s.mu.Unlock()
 				decoder := json.NewDecoder(response.Body)
 				for {
@@ -316,7 +324,9 @@ func (s *Server) startEvents() {
 					}
 					if event.Action != "" && !strings.HasPrefix(event.Action, "health_status") {
 						s.mu.Lock()
-						s.policy.Reset()
+						if generation == s.eventGeneration {
+							s.policy.Reset()
+						}
 						s.mu.Unlock()
 					}
 				}
@@ -325,8 +335,10 @@ func (s *Server) startEvents() {
 				response.Body.Close()
 			}
 			s.mu.Lock()
-			s.eventHealthy = false
-			s.policy.Reset()
+			if generation == s.eventGeneration {
+				s.eventHealthy = false
+				s.policy.Reset()
+			}
 			s.mu.Unlock()
 			select {
 			case <-ctx.Done():
@@ -786,8 +798,7 @@ func Serve(ctx context.Context, s *Server) error {
 	if e = os.Chmod(s.Manager.Paths.GatewaySocket(), 0600); e != nil {
 		return e
 	}
-	target, _ := url.Parse("http://docker")
-	dockerServer := &http.Server{Handler: gateway.Proxy(target, gateway.UnixTransport(s.Manager.Paths.DockerSocket()), s.Tracker, "Docker"), ReadHeaderTimeout: 10 * time.Second}
+	dockerServer := &http.Server{Handler: gateway.DockerProxy(s.Manager.Paths.DockerSocket(), s.Tracker), Protocols: gateway.DockerProtocols(), ReadHeaderTimeout: 10 * time.Second}
 	controlServer := &http.Server{Handler: s.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = dockerServer.Serve(docker) }()
 	go s.RunMonitor(ctx)

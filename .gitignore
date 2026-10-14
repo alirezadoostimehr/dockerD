@@ -11,3 +11,5 @@ dist/
 *.key
 backend/dockerd-service
 coverage.out
+__pycache__/
+*.py[cod]

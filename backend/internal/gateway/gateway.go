@@ -59,7 +59,8 @@ func (t *Tracker) TryGate(generation uint64) bool {
 
 func IsActivity(r *http.Request) bool {
 	p := r.URL.Path
-	return r.Method != "GET" && r.Method != "HEAD" || strings.EqualFold(r.Header.Get("Connection"), "upgrade") || r.Header.Get("Upgrade") != "" || strings.Contains(p, "/exec") || strings.Contains(p, "/attach") || strings.Contains(p, "/portforward")
+	transfer := (strings.Contains(p, "/images/") && strings.HasSuffix(p, "/get")) || strings.HasSuffix(p, "/archive") || strings.HasSuffix(p, "/export")
+	return r.Method != "GET" && r.Method != "HEAD" || transfer || strings.EqualFold(r.Header.Get("Connection"), "upgrade") || r.Header.Get("Upgrade") != "" || strings.Contains(p, "/exec") || strings.Contains(p, "/attach") || strings.Contains(p, "/portforward")
 }
 
 func Proxy(target *url.URL, transport http.RoundTripper, t *Tracker, name string) http.Handler {

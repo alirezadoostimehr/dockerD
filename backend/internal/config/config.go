@@ -4,8 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
 )
 
 type Settings struct {
@@ -20,15 +23,30 @@ type Settings struct {
 }
 
 func Defaults() Settings {
-	return Settings{CPUs: min(4, runtime.NumCPU()), MemoryGiB: 4, DiskGiB: 60, Kubernetes: true, SharedFolders: []string{}, IdleEnabled: true, IdleMinutes: 10, CountdownSeconds: 60}
+	return Settings{CPUs: min(4, runtime.NumCPU()), MemoryGiB: min(4, MaxMemoryGiB()), DiskGiB: 60, Kubernetes: true, SharedFolders: []string{}, IdleEnabled: true, IdleMinutes: 10, CountdownSeconds: 60}
+}
+
+func MaxMemoryGiB() int {
+	if runtime.GOOS != "darwin" {
+		return 128
+	}
+	b, e := exec.Command("/usr/sbin/sysctl", "-n", "hw.memsize").Output()
+	if e != nil {
+		return 4
+	}
+	n, e := strconv.ParseUint(strings.TrimSpace(string(b)), 10, 64)
+	if e != nil {
+		return 4
+	}
+	return max(2, min(128, int(n/(1<<30)/2)))
 }
 
 func (s Settings) Validate() error {
 	if s.CPUs < 1 || s.CPUs > runtime.NumCPU() {
 		return errors.New("CPU allocation must be between 1 and the host CPU count")
 	}
-	if s.MemoryGiB < 2 || s.MemoryGiB > 128 {
-		return errors.New("memory must be between 2 and 128 GiB")
+	if s.MemoryGiB < 2 || s.MemoryGiB > MaxMemoryGiB() {
+		return errors.New("memory must be at least 2 GiB and no more than half of host memory (maximum 128 GiB)")
 	}
 	if s.DiskGiB < 20 || s.DiskGiB > 1024 {
 		return errors.New("disk must be between 20 and 1024 GiB")

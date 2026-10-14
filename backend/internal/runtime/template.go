@@ -26,6 +26,10 @@ func (m *Manager) Template(s config.Settings) ([]byte, error) {
 	if e = json.Unmarshal(b, &lock); e != nil {
 		return nil, e
 	}
+	imageLocation := lock.Guest.Image.URL
+	if _, e := os.Stat(filepath.Join(m.Paths.Home, "images", "linux.img")); e == nil {
+		imageLocation = filepath.Join(m.Paths.Home, "images", "linux.img")
+	}
 	script := `#!/bin/bash
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
@@ -37,9 +41,9 @@ if [ ! -f /var/lib/dockerd-provisioned ]; then
   tar -xzf /tmp/docker.tgz -C /usr/local/bin --strip-components=1
   rm /tmp/docker.tgz
   groupadd -f docker
-  usermod -aG docker "${LIMA_CIDATA_USER}"
+  usermod -aG docker "{{.User}}"
   mkdir -p /etc/docker /etc/rancher/k3s /var/log/dockerd
-  echo '{"log-driver":"local"}' > /etc/docker/daemon.json
+  echo '{"log-driver":"json-file","log-opts":{"max-size":"10m","max-file":"3"}}' > /etc/docker/daemon.json
   cat > /etc/systemd/system/docker.service <<'UNIT'
 [Unit]
 Description=DockerD container engine
@@ -95,6 +99,13 @@ UNIT
   systemctl enable docker
   touch /var/lib/dockerd-provisioned
 fi
+# K3s requires Docker's JSON log files for CRI logs. Apply this to existing VMs
+# as well as new ones; the app owns the guest daemon configuration.
+desired='{"log-driver":"json-file","log-opts":{"max-size":"10m","max-file":"3"}}'
+if [ "$(cat /etc/docker/daemon.json)" != "$desired" ]; then
+  systemctl stop docker
+  echo "$desired" > /etc/docker/daemon.json
+fi
 systemctl start docker
 `
 	script = strings.NewReplacer("DOCKER_URL", quote(lock.Guest.Docker.URL), "DOCKER_HASH", lock.Guest.Docker.SHA256, "K3S_URL", quote(lock.Guest.K3s.URL), "K3S_HASH", lock.Guest.K3s.SHA256).Replace(script)
@@ -105,7 +116,7 @@ systemctl start docker
 	// JSON is a YAML subset; encoding avoids interpolation of user folder names.
 	template := map[string]any{
 		"minimumLimaVersion": "2.0.0", "vmType": "vz", "arch": "aarch64", "cpus": s.CPUs, "memory": fmt.Sprintf("%dGiB", s.MemoryGiB), "disk": fmt.Sprintf("%dGiB", s.DiskGiB),
-		"images":    []any{map[string]any{"location": lock.Guest.Image.URL, "arch": "aarch64", "digest": "sha256:" + lock.Guest.Image.SHA256}},
+		"images":    []any{map[string]any{"location": imageLocation, "arch": "aarch64", "digest": "sha256:" + lock.Guest.Image.SHA256}},
 		"mountType": "virtiofs", "mounts": mounts, "containerd": map[string]bool{"system": false, "user": false},
 		"hostResolver": map[string]any{"hosts": map[string]string{"host.docker.internal": "host.lima.internal"}},
 		"provision":    []any{map[string]any{"mode": "system", "script": script}},

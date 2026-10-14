@@ -48,14 +48,18 @@ func (p Paths) Binary(name string) string {
 }
 
 type Manager struct {
-	Paths          Paths
-	mu             sync.Mutex
-	progress       string
-	auditOffset    int64
-	auditPartial   string
-	sessions       map[string]idle.Blocker
-	infrastructure map[string]bool
-	docker         *http.Client
+	Paths             Paths
+	mu                sync.Mutex
+	progress          string
+	auditOffset       int64
+	auditPartial      string
+	auditIdentity     string
+	auditFault        error
+	sessions          map[string]idle.Blocker
+	infrastructure    map[string]bool
+	docker            *http.Client
+	metrics           *Metrics
+	cpuTotal, cpuIdle uint64
 }
 
 func New(p Paths) *Manager {
@@ -64,7 +68,7 @@ func New(p Paths) *Manager {
 func (m *Manager) Progress() string     { m.mu.Lock(); defer m.mu.Unlock(); return m.progress }
 func (m *Manager) SetProgress(s string) { m.mu.Lock(); m.progress = s; m.mu.Unlock() }
 func (m *Manager) Env() []string {
-	return append(os.Environ(), "LIMA_HOME="+m.Paths.LimaHome(), "DOCKER_CLI_PLUGIN_EXTRA_DIRS="+filepath.Join(m.Paths.Bundle, "cli-plugins"))
+	return append(os.Environ(), "LIMA_HOME="+m.Paths.LimaHome())
 }
 func (m *Manager) Command(ctx context.Context, name string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, m.Paths.Binary(name), args...)
@@ -105,6 +109,9 @@ func (m *Manager) Start(ctx context.Context, s config.Settings) error {
 	if e := os.MkdirAll(m.Paths.LimaHome(), 0700); e != nil {
 		return e
 	}
+	if e := m.ensureImage(ctx); e != nil {
+		return e
+	}
 	if !m.Exists() {
 		m.SetProgress("Preparing the Linux virtual machine…")
 		b, e := m.Template(s)
@@ -126,6 +133,19 @@ func (m *Manager) Start(ctx context.Context, s config.Settings) error {
 		}
 		b, _ := json.Marshal(mounts)
 		expr := fmt.Sprintf(".cpus = %d | .memory = \"%dGiB\" | .mounts = %s", s.CPUs, s.MemoryGiB, b)
+		updated, e := m.Template(s)
+		if e != nil {
+			return e
+		}
+		var template map[string]json.RawMessage
+		if e = json.Unmarshal(updated, &template); e != nil {
+			return e
+		}
+		expr += " | .provision = " + string(template["provision"])
+		if _, e := os.Stat(filepath.Join(m.Paths.Home, "images", "linux.img")); e == nil {
+			local, _ := json.Marshal(filepath.Join(m.Paths.Home, "images", "linux.img"))
+			expr += " | .images[0].location = " + string(local)
+		}
 		if _, e := m.Lima(ctx, "edit", "--tty=false", "--set", expr, Instance); e != nil {
 			return e
 		}
@@ -363,7 +383,7 @@ func (m *Manager) Terminal(kind, id, namespace string) (string, error) {
 		binary = m.Paths.Binary("kubectl")
 		args = []string{"--kubeconfig", m.Paths.Kubeconfig(), "-n", namespace, "exec", "-it", id, "--", "sh"}
 	} else {
-		args = []string{"--context", "dockerd-local", "exec", "-it", id, "sh"}
+		args = []string{"--host", "unix://" + m.Paths.GatewaySocket(), "exec", "-it", id, "sh"}
 	}
 	line := quote(binary)
 	for _, a := range args {

@@ -34,6 +34,7 @@ type Status struct {
 	Activity         idle.Decision   `json:"activity"`
 	Home             string          `json:"home"`
 	Kubeconfig       string          `json:"kubeconfig"`
+	Metrics          *engine.Metrics `json:"metrics,omitempty"`
 }
 type Forward struct {
 	ID         string `json:"id"`
@@ -85,7 +86,7 @@ func (s *Server) Status() Status {
 	if state == "active" && s.decision.State == "idle countdown" {
 		state = s.decision.State
 	}
-	return Status{State: state, Message: s.Manager.Progress(), Error: s.lastError, RuntimeInstalled: s.Manager.Installed(), VMExists: s.Manager.Exists(), Settings: s.settings, Activity: s.decision, Home: s.Manager.Paths.Home, Kubeconfig: s.Manager.Paths.Kubeconfig()}
+	return Status{State: state, Message: s.Manager.Progress(), Error: s.lastError, RuntimeInstalled: s.Manager.Installed(), VMExists: s.Manager.Exists(), Settings: s.settings, Activity: s.decision, Home: s.Manager.Paths.Home, Kubeconfig: s.Manager.Paths.Kubeconfig(), Metrics: s.Manager.Metrics()}
 }
 func (s *Server) fail(e error) {
 	s.mu.Lock()
@@ -125,6 +126,13 @@ func (s *Server) Handler() http.Handler {
 		respond(w, map[string]bool{"ok": true})
 	})
 	mux.HandleFunc("GET /v1/resources/{kind}", s.resources)
+	mux.HandleFunc("POST /v1/cli/install", func(w http.ResponseWriter, r *http.Request) {
+		if e := s.Manager.InstallCLI(); e != nil {
+			failure(w, e)
+			return
+		}
+		respond(w, map[string]bool{"ok": true})
+	})
 	mux.HandleFunc("GET /v1/detail", s.detail)
 	mux.HandleFunc("POST /v1/action", s.action)
 	mux.HandleFunc("GET /v1/forwards", s.listForwards)
@@ -306,7 +314,7 @@ func (s *Server) startEvents() {
 					if decoder.Decode(&event) != nil {
 						break
 					}
-					if strings.HasPrefix(event.Action, "exec_") {
+					if event.Action != "" && !strings.HasPrefix(event.Action, "health_status") {
 						s.mu.Lock()
 						s.policy.Reset()
 						s.mu.Unlock()
@@ -404,15 +412,15 @@ func (s *Server) tick(ctx context.Context) {
 	s.mu.Lock()
 	healthy := s.eventHealthy
 	stillActive := s.state == "active"
-	s.mu.Unlock()
-	if !final.Healthy || !healthy || len(final.Blockers) > 0 || !stillActive {
-		s.Tracker.Gate(!stillActive)
-		s.mu.Lock()
+	// A concurrent Keep running action or settings change invalidates the old
+	// deadline. Re-evaluate while holding the state lock before committing.
+	finalDecision := s.policy.Evaluate(time.Now(), final)
+	if !final.Healthy || !healthy || len(final.Blockers) > 0 || !stillActive || !finalDecision.ShouldStop {
 		s.policy.Reset()
 		s.mu.Unlock()
+		s.Tracker.Gate(!stillActive)
 		return
 	}
-	s.mu.Lock()
 	s.state = "stopping"
 	s.mu.Unlock()
 	s.stopEngine()
@@ -522,7 +530,7 @@ func (s *Server) detail(w http.ResponseWriter, r *http.Request) {
 	var e error
 	if kind == "pods" {
 		if view == "logs" {
-			b, e = s.Manager.Kubectl(r.Context(), "-n", ns, "logs", id, "--tail=300", "--all-containers=true")
+			b, e = s.Manager.Logs(r.Context(), "pods", id, ns)
 		} else {
 			b, e = s.Manager.Kubectl(r.Context(), "-n", ns, "get", "pod", id, "-o", "json")
 		}
@@ -530,7 +538,7 @@ func (s *Server) detail(w http.ResponseWriter, r *http.Request) {
 		switch kind {
 		case "containers":
 			if view == "logs" {
-				b, e = s.Manager.Command(r.Context(), "docker", "--context", "dockerd-local", "logs", "--tail", "300", id)
+				b, e = s.Manager.Logs(r.Context(), "containers", id, "")
 			} else {
 				b, e = s.Manager.Docker(r.Context(), "GET", "/containers/"+url.PathEscape(id)+"/json", nil)
 			}
@@ -550,11 +558,13 @@ func (s *Server) detail(w http.ResponseWriter, r *http.Request) {
 }
 
 type Action struct {
-	Kind      string `json:"kind"`
-	ID        string `json:"id"`
-	Namespace string `json:"namespace"`
-	Action    string `json:"action"`
-	Value     string `json:"value"`
+	Kind          string `json:"kind"`
+	ID            string `json:"id"`
+	Namespace     string `json:"namespace"`
+	Action        string `json:"action"`
+	Value         string `json:"value"`
+	LocalPort     int    `json:"localPort"`
+	ContainerPort int    `json:"containerPort"`
 }
 
 func (s *Server) action(w http.ResponseWriter, r *http.Request) {
@@ -577,6 +587,33 @@ func (s *Server) action(w http.ResponseWriter, r *http.Request) {
 	var e error
 	var result []byte
 	switch a.Action {
+	case "run":
+		if a.ID == "" || a.LocalPort < 0 || a.LocalPort > 65535 || a.ContainerPort < 0 || a.ContainerPort > 65535 || (a.LocalPort == 0) != (a.ContainerPort == 0) {
+			e = errors.New("select an image and valid optional ports")
+			break
+		}
+		body := map[string]any{"Image": a.ID}
+		if a.LocalPort != 0 {
+			port := strconv.Itoa(a.ContainerPort) + "/tcp"
+			body["ExposedPorts"] = map[string]any{port: map[string]any{}}
+			body["HostConfig"] = map[string]any{"PortBindings": map[string]any{port: []any{map[string]string{"HostIp": "127.0.0.1", "HostPort": strconv.Itoa(a.LocalPort)}}}}
+		}
+		encoded, _ := json.Marshal(body)
+		path := "/containers/create"
+		if a.Value != "" {
+			path += "?name=" + url.QueryEscape(a.Value)
+		}
+		result, e = s.Manager.Docker(ctx, "POST", path, strings.NewReader(string(encoded)))
+		if e != nil {
+			break
+		}
+		var created struct {
+			ID string `json:"Id"`
+		}
+		if e = json.Unmarshal(result, &created); e != nil {
+			break
+		}
+		result, e = s.Manager.Docker(ctx, "POST", "/containers/"+created.ID+"/start", nil)
 	case "terminal":
 		if a.Kind != "containers" && a.Kind != "pods" {
 			e = errors.New("terminal requires a container or pod")
@@ -612,9 +649,9 @@ func (s *Server) action(w http.ResponseWriter, r *http.Request) {
 			e = errors.New("enter an image reference")
 			break
 		}
-		result, e = s.Manager.Command(ctx, "docker", "--context", "dockerd-local", "pull", a.Value)
+		result, e = s.Manager.Command(ctx, "docker", "--host", "unix://"+s.Manager.Paths.GatewaySocket(), "pull", a.Value)
 	case "tag":
-		result, e = s.Manager.Command(ctx, "docker", "--context", "dockerd-local", "tag", a.ID, a.Value)
+		result, e = s.Manager.Command(ctx, "docker", "--host", "unix://"+s.Manager.Paths.GatewaySocket(), "tag", a.ID, a.Value)
 	case "createVolume":
 		body, _ := json.Marshal(map[string]string{"Name": a.Value})
 		result, e = s.Manager.Docker(ctx, "POST", "/volumes/create", strings.NewReader(string(body)))

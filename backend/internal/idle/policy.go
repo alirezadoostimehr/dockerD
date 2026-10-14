@@ -33,7 +33,8 @@ func (p *Policy) Evaluate(now time.Time, s Snapshot) Decision {
 	if p.MaxAge <= 0 {
 		p.MaxAge = 20 * time.Second
 	}
-	gap := !p.last.IsZero() && (now.Sub(p.last) > p.MaxAge || now.Before(p.last))
+	// Strip the monotonic component: macOS monotonic time may pause during sleep.
+	gap := !p.last.IsZero() && (now.Round(0).Sub(p.last.Round(0)) > p.MaxAge || now.Round(0).Before(p.last.Round(0)))
 	p.last = now
 	if !s.Healthy || s.At.IsZero() || now.Sub(s.At) > p.MaxAge || s.At.After(now) {
 		d.Healthy = false

@@ -223,16 +223,35 @@ func (m *Manager) Observe(ctx context.Context, kubernetes bool) idle.Snapshot {
 		}
 	}
 	s.At = time.Now()
+	m.sampleMetrics(ctx)
 	return s
 }
-func (m *Manager) audit(ctx context.Context) error {
+func (m *Manager) audit(ctx context.Context) (err error) {
+	if m.auditFault != nil {
+		return m.auditFault
+	}
+	invalidated := false
+	defer func() {
+		if err != nil && invalidated {
+			m.auditFault = err
+		}
+	}()
 	// Reading from byte offsets avoids replay on every sample. Rotation invalidates
 	// the baseline rather than guessing that lost sessions have completed.
-	size, e := m.Shell(ctx, "sudo", "stat", "-c", "%s", "/var/log/dockerd/audit.log")
+	size, e := m.Shell(ctx, "sudo", "stat", "-c", "%i %s", "/var/log/dockerd/audit.log")
 	if e != nil {
 		return e
 	}
-	n, e := strconv.ParseInt(strings.TrimSpace(string(size)), 10, 64)
+	invalidated = true
+	fields := strings.Fields(string(size))
+	if len(fields) != 2 {
+		return fmt.Errorf("invalid audit file identity")
+	}
+	if m.auditIdentity != "" && m.auditIdentity != fields[0] {
+		return fmt.Errorf("Kubernetes audit log rotated; restart the engine to establish a fresh session baseline")
+	}
+	m.auditIdentity = fields[0]
+	n, e := strconv.ParseInt(fields[1], 10, 64)
 	if e != nil {
 		return e
 	}
@@ -240,15 +259,21 @@ func (m *Manager) audit(ctx context.Context) error {
 		return fmt.Errorf("Kubernetes audit log rotated; restart the engine to establish a fresh session baseline")
 	}
 	if n == m.auditOffset {
+		if m.auditPartial != "" {
+			invalidated = false
+			return fmt.Errorf("waiting for a complete Kubernetes audit event")
+		}
 		return nil
 	}
 	if n-m.auditOffset > 32<<20 {
 		return fmt.Errorf("audit backlog exceeds safe reconciliation limit; restart the engine")
 	}
+	invalidated = false
 	b, e := m.Shell(ctx, "sudo", "tail", "-c", "+"+strconv.FormatInt(m.auditOffset+1, 10), "/var/log/dockerd/audit.log")
 	if e != nil {
 		return e
 	}
+	invalidated = true
 	m.auditOffset += int64(len(b))
 	lines := strings.Split(m.auditPartial+string(b), "\n")
 	m.auditPartial = lines[len(lines)-1]
@@ -263,6 +288,9 @@ func (m *Manager) audit(ctx context.Context) error {
 		}
 		if e = json.Unmarshal([]byte(line), &event); e != nil {
 			return fmt.Errorf("invalid audit event: %w", e)
+		}
+		if event.AuditID == "" {
+			return fmt.Errorf("audit event has no identity")
 		}
 		o := event.ObjectRef
 		if o.Resource != "pods" {
@@ -280,10 +308,16 @@ func (m *Manager) audit(ctx context.Context) error {
 			delete(m.sessions, event.AuditID)
 		}
 	}
+	if m.auditPartial != "" {
+		invalidated = false
+		return fmt.Errorf("waiting for a complete Kubernetes audit event")
+	}
 	return nil
 }
 func (m *Manager) ResetAudit() {
 	m.auditOffset = 0
 	m.auditPartial = ""
+	m.auditIdentity = ""
+	m.auditFault = nil
 	m.sessions = map[string]idle.Blocker{}
 }

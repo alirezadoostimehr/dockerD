@@ -3,10 +3,10 @@
 import concurrent.futures
 import hashlib
 import json
-import os
 from pathlib import Path
 import shutil
 import tarfile
+import tempfile
 import urllib.request
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -30,13 +30,21 @@ def fetch(entry):
     return entry, target
 
 def main():
-    manifest = json.loads((ROOT / 'resources/runtime-lock.json').read_text())
-    DEST.mkdir(parents=True, exist_ok=True)
+    raw = (ROOT / 'resources/runtime-lock.json').read_bytes()
+    manifest = json.loads(raw)
+    fingerprint = hashlib.sha256(raw).hexdigest()
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
         downloads = list(pool.map(fetch, manifest['host']))
+    marker = DEST / '.manifest-sha256'
+    if marker.exists() and marker.read_text() == fingerprint and (DEST / 'lima/bin/limactl').exists():
+        print('Verified runtime bundle already prepared: ' + str(DEST))
+        return
+    # Never extract over an executing Mach-O file. macOS caches code signatures
+    # by vnode and can SIGKILL an in-place rewritten binary even when bytes match.
+    staging = Path(tempfile.mkdtemp(prefix='bundle-staging-', dir=DEST.parent))
     for entry, source in downloads:
         if entry.get('archive'):
-            output = DEST / entry['destination']
+            output = staging / entry['destination']
             output.mkdir(parents=True, exist_ok=True)
             with tarfile.open(source) as archive:
                 # The artifacts are checksum-locked; also reject traversal links.
@@ -50,10 +58,24 @@ def main():
                             raise ValueError('Unsafe archive link: ' + item.name)
                 archive.extractall(output, filter='data')
         else:
-            output = DEST / entry['destination']
+            output = staging / entry['destination']
             output.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, output)
             output.chmod(0o755)
+    (staging / '.manifest-sha256').write_text(fingerprint)
+    previous = DEST.with_name('bundle-previous')
+    if previous.exists():
+        shutil.rmtree(previous)
+    if DEST.exists():
+        DEST.rename(previous)
+    try:
+        staging.rename(DEST)
+    except Exception:
+        if previous.exists():
+            previous.rename(DEST)
+        raise
+    if previous.exists():
+        shutil.rmtree(previous)
     print('Verified runtime bundle: ' + str(DEST))
 
 if __name__ == '__main__':

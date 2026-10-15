@@ -30,6 +30,24 @@ Additional checks passed: Docker Buildx built and loaded a real image through th
 
 ## Packaging
 
+### Startup permissions and log viewer regression
+
+The opt-in `TestSocketAccessLive` creates a fresh isolated VM and Docker CLI configuration. It verified first-boot access through Lima's original SSH connection, reproduced the old `EOF` by restoring root ownership, repaired access without changing Docker's PID, and verified both a Docker daemon restart and a full VM stop/start. Socket permissions remained `0660`. The test stops and deletes its own VM afterwards.
+
+Run it from `backend` after preparing the bundled runtime:
+
+```sh
+DOCKERD_LIVE_TEST=1 go test -v ./internal/runtime -run TestSocketAccessLive -timeout 20m
+```
+
+Optionally set `DOCKERD_TEST_IMAGE` to an existing verified Linux image cache on the same filesystem to avoid downloading it again. This test does not use the application's VM or Docker context.
+
+`make test` passed with log-reader coverage for missing files, file replacement, bounded large-log reads, and complete UTF-8 lines. `make app` also passed, including signature verification.
+
+The updated app repaired the previously failed local instance through Start engine; Docker and Kubernetes reached ready with healthy activity monitoring. The Logs screen was opened in the signed app and visually inspected with actual service messages.
+
+### Application bundle
+
 `make app` built `dist/DockerD.app`, bundled the locked tools and license notices, and passed `codesign --verify --deep --strict`. The service and Lima binaries inside that signed bundle successfully started the test VM with healthy Docker/Kubernetes monitoring. The local build uses an ad-hoc signature. Developer ID notarization requires the user's credentials and was not performed.
 
 The packaged app was opened and its actual Overview window was visually inspected; a capture is included in `docs/images/overview.png`. Full manual UI accessibility testing and older-macOS compatibility testing remain release-validation tasks. The native views use standard macOS controls, labels, keyboard commands, and appearance settings.

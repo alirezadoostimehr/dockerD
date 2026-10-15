@@ -112,7 +112,9 @@ struct ContentView: View {
             }
           }
         }.padding(30)
-        if !model.connected {
+        if model.section == .logs {
+          LogsView()
+        } else if !model.connected {
           EmptyPanel(
             symbol: "cable.connector.slash", title: "Connecting to DockerD",
             description: "The local service manages your engine and keeps idle monitoring active."
@@ -168,24 +170,6 @@ struct ContentView: View {
       Text(
         "Running applications and sessions will be interrupted. Images, volumes, and cluster data will be preserved."
       )
-    }
-    .sheet(
-      isPresented: Binding(
-        get: { model.diagnostics != nil }, set: { if !$0 { model.diagnostics = nil } })
-    ) {
-      VStack(alignment: .leading, spacing: 16) {
-        HStack {
-          Text("Runtime diagnostics").font(.title2.bold())
-          Spacer()
-          Button("Done") { model.diagnostics = nil }
-        }
-        ScrollView {
-          Text(model.diagnostics?.isEmpty == false ? model.diagnostics! : "No runtime logs yet.")
-            .font(.system(size: 11, design: .monospaced)).textSelection(.enabled).frame(
-              maxWidth: .infinity, alignment: .leading)
-        }
-        Button("Open logs folder") { NSWorkspace.shared.open(model.home) }
-      }.padding(24).frame(width: 800, height: 550)
     }
   }
   private func sidebarButton(_ section: Section) -> some View {

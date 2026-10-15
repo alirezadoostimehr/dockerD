@@ -99,6 +99,7 @@ enum Section: String, CaseIterable, Identifiable {
   case volumes = "Volumes"
   case pods = "Kubernetes"
   case forwards = "Port forwards"
+  case logs = "Logs"
   case settings = "Settings"
   var id: String { rawValue }
   var key: String { self == .pods ? "pods" : rawValue.lowercased() }
@@ -110,6 +111,7 @@ enum Section: String, CaseIterable, Identifiable {
     case .volumes: "externaldrive"
     case .pods: "cube.transparent"
     case .forwards: "arrow.left.arrow.right"
+    case .logs: "doc.text.magnifyingglass"
     case .settings: "slider.horizontal.3"
     }
   }
@@ -121,6 +123,7 @@ enum Section: String, CaseIterable, Identifiable {
     case .volumes: "Persistent storage for your applications."
     case .pods: "A local cluster, ready for your next idea."
     case .forwards: "Secure connections from localhost to your pods."
+    case .logs: "Follow startup and service activity, even when the engine is offline."
     case .settings: "Make DockerD work the way you do."
     }
   }

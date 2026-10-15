@@ -106,8 +106,8 @@ if [ "$(cat /etc/docker/daemon.json)" != "$desired" ]; then
   systemctl stop docker
   echo "$desired" > /etc/docker/daemon.json
 fi
-systemctl start docker
-`
+DOCKERD_SOCKET_UID={{.UID}}
+` + dockerSocketAccessScript
 	script = strings.NewReplacer("DOCKER_URL", quote(lock.Guest.Docker.URL), "DOCKER_HASH", lock.Guest.Docker.SHA256, "K3S_URL", quote(lock.Guest.K3s.URL), "K3S_HASH", lock.Guest.K3s.SHA256).Replace(script)
 	mounts := []map[string]any{}
 	for _, p := range s.SharedFolders {

@@ -29,7 +29,8 @@ Only selected folders are mounted read-write. Published container ports and pod 
 ## Troubleshooting
 
 - **Download interrupted:** retry Start. The Linux image resumes from a private partial file and is used only after its SHA-256 check passes. Provisioning requires access to Ubuntu, GitHub, Docker downloads, and image registries.
-- **Startup fails:** open Overview → View diagnostics. VM data remains intact for retry. Resolve port collisions and missing shared folders first.
+- **Startup fails:** open **Logs** in the sidebar (also available through Overview → View diagnostics). Choose Service for startup stages and errors, Startup for Lima launch output, Virtual machine for VM/forwarding details, or Boot console. Logs remain available when the service is disconnected. Live refresh, line filtering, follow-latest, and copy controls help isolate failures; Open logs folder gives access to complete files. The viewer reads only the latest 128 KiB per source.
+- **Docker is running but startup reports `EOF`:** earlier builds could establish SSH forwarding before the VM user joined the Docker group. Updated builds assign the socket directly to that user and preserve ownership across daemon restarts. Start engine in the updated app repairs an existing instance without deleting its data.
 - **Ports 16443/16444 are occupied:** stop the conflicting service or other DockerD test instance. This release supports one Kubernetes VM per Mac.
 - **CLI reports engine stopped:** explicitly Start engine. Polling tools do not wake the VM.
 - **Automatic shutdown never occurs:** inspect Overview's blockers. Running servers, open terminals, and unused but open forwards count. Monitoring failures block shutdown intentionally. Delayed Kubernetes cleanup can reset the idle baseline after a workload ends.

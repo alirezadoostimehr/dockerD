@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -90,6 +91,7 @@ func (s *Server) Status() Status {
 	return Status{State: state, Message: s.Manager.Progress(), Error: s.lastError, RuntimeInstalled: s.Manager.Installed(), VMExists: s.Manager.Exists(), Settings: s.settings, Activity: s.decision, Home: s.Manager.Paths.Home, Kubeconfig: s.Manager.Paths.Kubeconfig(), Metrics: s.Manager.Metrics()}
 }
 func (s *Server) fail(e error) {
+	log.Printf("engine error: %v", e)
 	s.mu.Lock()
 	s.state = "error"
 	s.lastError = e.Error()

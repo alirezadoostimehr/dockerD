@@ -21,6 +21,8 @@ struct DockerDApp: App {
       }
       CommandGroup(after: .toolbar) {
         Button("Refresh") { Task { await model.refresh() } }.keyboardShortcut("r")
+        Button("Show Logs") { model.section = .logs }.keyboardShortcut(
+          "l", modifiers: [.command, .shift])
       }
     }
     MenuBarExtra("DockerD", systemImage: "shippingbox.fill") {

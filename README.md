@@ -21,6 +21,7 @@ Move the app to its permanent location before installing CLI links. Homebrew, Do
 ## Everyday use
 
 - **Overview:** engine controls, live VM usage, shutdown blockers, and countdown cancellation.
+- **Logs:** live service, startup, VM, and boot-console logs with filtering and copy controls, available even when the service is disconnected.
 - **Containers:** Compose grouping, lifecycle actions, logs, inspection, and interactive terminals in macOS Terminal.
 - **Images:** pull, inspect, tag, run with an optional localhost port, and remove.
 - **Volumes:** create, inspect, and remove persistent storage. Docker rejects deletion of volumes still in use.

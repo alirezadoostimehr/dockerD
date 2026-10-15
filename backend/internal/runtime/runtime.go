@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -65,8 +66,16 @@ type Manager struct {
 func New(p Paths) *Manager {
 	return &Manager{Paths: p, sessions: map[string]idle.Blocker{}, infrastructure: map[string]bool{}, docker: &http.Client{Transport: gateway.UnixTransport(p.DockerSocket()), Timeout: 15 * time.Second}}
 }
-func (m *Manager) Progress() string     { m.mu.Lock(); defer m.mu.Unlock(); return m.progress }
-func (m *Manager) SetProgress(s string) { m.mu.Lock(); m.progress = s; m.mu.Unlock() }
+func (m *Manager) Progress() string { m.mu.Lock(); defer m.mu.Unlock(); return m.progress }
+func (m *Manager) SetProgress(s string) {
+	m.mu.Lock()
+	changed := m.progress != s
+	m.progress = s
+	m.mu.Unlock()
+	if changed {
+		log.Printf("runtime: %s", s)
+	}
+}
 func (m *Manager) Env() []string {
 	return append(os.Environ(), "LIMA_HOME="+m.Paths.LimaHome())
 }
@@ -164,7 +173,7 @@ func (m *Manager) Start(ctx context.Context, s config.Settings) error {
 		return fmt.Errorf("VM startup failed: %w. See runtime.log in diagnostics", e)
 	}
 	m.SetProgress("Waiting for Docker Engine…")
-	if _, e = m.Shell(ctx, "sudo", "systemctl", "start", "docker"); e != nil {
+	if e = m.ensureDockerSocketAccess(ctx); e != nil {
 		return e
 	}
 	if e = retry(ctx, 90, func() error { _, e := m.Docker(ctx, "GET", "/_ping", nil); return e }); e != nil {

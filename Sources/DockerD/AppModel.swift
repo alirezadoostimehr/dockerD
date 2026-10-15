@@ -24,7 +24,6 @@ final class AppModel: ObservableObject {
   @Published var connected = false
   @Published var detail = ""
   @Published var detailView = "inspect"
-  @Published var diagnostics: String?
   @Published var toast: String?
   let client: ServiceClient
   let home: URL
@@ -258,9 +257,7 @@ final class AppModel: ObservableObject {
     } catch { self.error = error.localizedDescription }
   }
   func showDiagnostics() async {
-    do {
-      diagnostics = try await client.request("GET", "/v1/diagnostics", as: TextResponse.self).text
-    } catch { self.error = error.localizedDescription }
+    section = .logs
   }
   func showToast(_ text: String) {
     toast = text

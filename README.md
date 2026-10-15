@@ -72,3 +72,11 @@ See [architecture](docs/architecture.md), [operations and troubleshooting](docs/
 ## Initial release boundaries
 
 One local VM/cluster on Apple Silicon, macOS 14+. This is an independent app with core local workflows, not full Docker Desktop feature parity. Extensions, cloud integrations, Intel builds, migration, automatic runtime upgrades, and automatic wake are not included. Disk capacity is fixed after VM creation. Runtime versions are updated through a rebuilt app.
+
+## License
+
+DockerD's original source code and documentation are licensed under the [Apache License, Version 2.0](LICENSE). Copyright 2026 DockerD contributors.
+
+The software is provided on an **AS IS** basis, without warranties or conditions of any kind, subject to the terms of the license. See sections 7–9 for the disclaimer of warranty, limitation of liability, and provisions concerning additional obligations.
+
+Third-party components retain their respective licenses; see [NOTICE](NOTICE) and [third-party notices](docs/third-party.md). The application bundle includes DockerD's `LICENSE` and `NOTICE` in `Contents/Resources`.

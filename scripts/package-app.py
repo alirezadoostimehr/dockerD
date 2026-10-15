@@ -26,6 +26,8 @@ def main():
     shutil.copy2(ROOT / 'resources/runtime-lock.json', resources / 'runtime-lock.json')
     shutil.copytree(ROOT / '.runtime/bundle', resources / 'Runtime', symlinks=True)
     shutil.copytree(ROOT / 'resources/licenses', resources / 'Licenses')
+    for name in ('LICENSE', 'NOTICE'):
+        shutil.copy2(ROOT / name, resources / name)
     if (ROOT / 'docs/third-party.md').exists():
         shutil.copy2(ROOT / 'docs/third-party.md', resources / 'Third-party-notices.md')
     run('swift', str(ROOT / 'scripts/make-icon.swift'), str(ROOT / 'build/AppIcon.iconset'))

@@ -281,7 +281,7 @@ struct OverviewView: View {
               HStack {
                 Image(systemName: "timer")
                 Text("Engine stops in")
-                Text(deadline, style: .timer).monospacedDigit()
+                CountdownView(deadline: deadline)
                 Spacer()
                 Button("Keep running") { Task { await model.resetIdle() } }
               }.font(.callout).padding(12).background(

@@ -96,7 +96,7 @@ struct MenuBarContent: View {
         if let deadline = status.activity.deadlineDate {
           HStack {
             Text("Stops in")
-            Text(deadline, style: .timer).monospacedDigit()
+            CountdownView(deadline: deadline)
           }.font(.caption)
         }
         Button("Keep running") { Task { await model.resetIdle() } }
